@@ -166,25 +166,15 @@ def build_tmdb_settings() -> TMDBSettings:
     configured_language = get_runtime_value("TMDB_LANGUAGE", default=DEFAULT_TMDB_LANGUAGE)
     default_language = configured_language if configured_language in language_options else "en-US"
 
-    api_key = st.sidebar.text_input(
-        "TMDB API Key",
-        value=get_runtime_value("TMDB_API_KEY"),
-        type="password",
-        help="Optional. The app already works without it.",
-    ).strip()
-    access_token = st.sidebar.text_input(
-        "TMDB Access Token",
-        value=get_runtime_value("TMDB_ACCESS_TOKEN", "TMDB_BEARER_TOKEN"),
-        type="password",
-        help="Optional. You can use this instead of the API key.",
-    ).strip()
+    api_key = get_runtime_value("TMDB_API_KEY").strip()
+    access_token = get_runtime_value("TMDB_ACCESS_TOKEN", "TMDB_BEARER_TOKEN").strip()
     language = st.sidebar.selectbox(
         "TMDB Language",
         options=language_options,
         index=language_options.index(default_language),
     )
     st.sidebar.caption(
-        "No TMDB key yet is fine. Local recommendations still work with the starter catalog."
+        "Credentials are loaded privately from secrets or environment variables. They are not shown in the UI."
     )
     return TMDBSettings(api_key=api_key, access_token=access_token, language=language)
 
@@ -195,18 +185,13 @@ def build_youtube_settings() -> YouTubeSettings:
     configured_region = get_runtime_value("YOUTUBE_REGION_CODE", default=DEFAULT_YOUTUBE_REGION)
     default_region = configured_region if configured_region in region_options else "IN"
 
-    api_key = st.sidebar.text_input(
-        "YouTube API Key",
-        value=get_runtime_value("YOUTUBE_API_KEY"),
-        type="password",
-        help="Optional. Enables official trailer search from YouTube Data API v3.",
-    ).strip()
+    api_key = get_runtime_value("YOUTUBE_API_KEY").strip()
     region_code = st.sidebar.selectbox(
         "YouTube Region",
         options=region_options,
         index=region_options.index(default_region),
     )
-    st.sidebar.caption("Trailer search is optional and uses the YouTube Data API v3 search endpoint.")
+    st.sidebar.caption("Trailer search is optional and uses hidden credentials from secrets or environment variables.")
     return YouTubeSettings(api_key=api_key, region_code=region_code)
 
 
@@ -223,7 +208,7 @@ def render_sidebar_summary(tmdb_settings: TMDBSettings, youtube_settings: YouTub
     else:
         st.sidebar.info("YouTube is optional. Add a key for trailer buttons and embeds.")
 
-    st.sidebar.caption("Keys can come from `.env`, Streamlit secrets, or the sidebar inputs above.")
+    st.sidebar.caption("Keys stay private. Configure them in deployment secrets, `.streamlit/secrets.toml`, or environment variables.")
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
@@ -264,9 +249,9 @@ def ensure_ui_state(titles: list[str], tmdb_enabled: bool, youtube_enabled: bool
     if "top_n" not in st.session_state:
         st.session_state["top_n"] = 6
     if "enrich_with_tmdb" not in st.session_state:
-        st.session_state["enrich_with_tmdb"] = tmdb_enabled
+        st.session_state["enrich_with_tmdb"] = False
     if "show_youtube_trailers" not in st.session_state:
-        st.session_state["show_youtube_trailers"] = youtube_enabled
+        st.session_state["show_youtube_trailers"] = False
 
 
 def compute_catalog_stats(catalog) -> dict[str, int]:
@@ -359,7 +344,7 @@ def render_home_tab(catalog, tmdb_settings: TMDBSettings, youtube_settings: YouT
         with step_two:
             with st.container(border=True):
                 st.markdown("**2. Turn on live enrichment**")
-                st.write("Add TMDB or YouTube keys in the sidebar any time. The UI upgrades without changing the flow.")
+                st.write("If private credentials are configured for the app, you can turn on live TMDB and YouTube enrichment here.")
         with step_three:
             with st.container(border=True):
                 st.markdown("**3. Browse and compare**")
@@ -383,7 +368,7 @@ def render_home_tab(catalog, tmdb_settings: TMDBSettings, youtube_settings: YouT
             st.write("The project is ready in offline mode right now, and the live APIs stay optional.")
             st.metric("TMDB Live Mode", "Ready" if tmdb_settings.enabled else "Waiting For Key")
             st.metric("YouTube Trailers", "Ready" if youtube_settings.enabled else "Waiting For Key")
-            st.caption("Keys entered in the sidebar are used immediately for this session.")
+            st.caption("Credentials are kept outside the visible UI and loaded privately at runtime.")
 
         with st.container(border=True):
             st.markdown("### What You Unlock")
@@ -409,7 +394,7 @@ def render_selected_movie(
         else:
             with st.container(border=True):
                 st.markdown("#### Poster Preview")
-                st.caption("Add TMDB to show live artwork here.")
+                st.caption("Live TMDB artwork is unavailable right now, so the app is showing the local catalog view.")
 
     with content_column:
         with st.container(border=True):
