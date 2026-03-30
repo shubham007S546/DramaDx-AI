@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 from pathlib import Path
 
 import streamlit as st
@@ -69,6 +70,60 @@ def trim_text(value: str, limit: int = 220) -> str:
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: limit - 3].rstrip() + "..."
+
+
+def ensure_ui_state(catalog) -> None:
+    if "watchlist" not in st.session_state:
+        st.session_state["watchlist"] = []
+    if "search_query" not in st.session_state:
+        st.session_state["search_query"] = ""
+    if "search_countries" not in st.session_state:
+        st.session_state["search_countries"] = list(SUPPORTED_COUNTRIES)
+    if "search_year_range" not in st.session_state:
+        st.session_state["search_year_range"] = (
+            max(2020, int(catalog["year"].min())),
+            max(2026, int(catalog["year"].max())),
+        )
+    if "home_query" not in st.session_state:
+        st.session_state["home_query"] = ""
+
+
+def set_search_context(title: str, country: str = "") -> None:
+    st.session_state["search_query"] = title
+    if country in SUPPORTED_COUNTRIES:
+        st.session_state["search_countries"] = [country]
+
+
+def add_watchlist_entry(entry: dict) -> None:
+    watchlist = st.session_state.setdefault("watchlist", [])
+    key = (
+        str(entry.get("title", "")).strip().lower(),
+        str(entry.get("country", "")).strip().lower(),
+        int(entry.get("year", 0) or 0),
+    )
+    existing_keys = {
+        (
+            str(item.get("title", "")).strip().lower(),
+            str(item.get("country", "")).strip().lower(),
+            int(item.get("year", 0) or 0),
+        )
+        for item in watchlist
+    }
+    if key not in existing_keys:
+        watchlist.append(entry)
+
+
+def build_watchlist_entry(profile: dict, fallback_title: str = "") -> dict:
+    return {
+        "title": profile.get("title") or fallback_title,
+        "country": profile.get("country", ""),
+        "year": int(profile.get("year", 0) or 0),
+        "source": profile.get("source", "Saved"),
+        "poster_url": profile.get("poster_url", ""),
+        "tmdb_url": profile.get("tmdb_url", ""),
+        "overview": profile.get("overview", ""),
+        "search_title": fallback_title or profile.get("title", ""),
+    }
 
 
 def inject_styles() -> None:
@@ -293,6 +348,7 @@ def render_sidebar_summary(tmdb_settings: TMDBSettings, youtube_settings: YouTub
     else:
         st.sidebar.info("YouTube key is optional. Without it, the app will still show direct search links.")
 
+    st.sidebar.write(f"Watchlist: {len(st.session_state.get('watchlist', []))} saved")
     st.sidebar.caption("Keys stay private. Use local .env, Streamlit secrets, or the session-only inputs above.")
 
 
@@ -335,6 +391,29 @@ def render_placeholder_poster(title: str, country: str, year: int) -> None:
 
 
 def render_match_summary(local_matches: list[dict], live_matches: list[dict]) -> None:
+    if local_matches:
+        st.markdown("#### Starter catalog matches")
+        for index, match in enumerate(local_matches[:4]):
+            with st.container(border=True):
+                st.markdown(f"**{match['title']}**")
+                st.caption(f"{match['country']} | {match['year']} | match {match.get('match_score', 0):.2f}")
+                if st.button("Search This Title", key=f"local_match_pick_{index}", use_container_width=True):
+                    set_search_context(match["title"], match.get("country", ""))
+                    st.rerun()
+
+    if live_matches:
+        st.markdown("#### TMDB live matches")
+        for index, match in enumerate(live_matches[:4]):
+            country = ", ".join(match.get("country_names", [])) or "Unknown"
+            year = match.get("year") or "-"
+            with st.container(border=True):
+                st.markdown(f"**{match['title']}**")
+                st.caption(f"{country} | {year}")
+                if st.button("Load Live Match", key=f"live_match_pick_{index}", use_container_width=True):
+                    set_search_context(match["title"], country if country in SUPPORTED_COUNTRIES else "")
+                    st.rerun()
+    return
+
     if local_matches:
         st.markdown("#### Starter catalog matches")
         for match in local_matches[:4]:
@@ -443,6 +522,14 @@ def render_profile(profile: dict, tmdb_settings: TMDBSettings, youtube_settings:
             st.info(profile["watch_hint"])
 
         render_profile_links(profile, youtube_settings)
+
+        action_one, action_two = st.columns(2)
+        if action_one.button("Save to Watchlist", key=f"save_profile_{profile.get('title', '')}", use_container_width=True):
+            add_watchlist_entry(build_watchlist_entry(profile))
+            st.rerun()
+        if action_two.button("Search This Drama", key=f"search_profile_{profile.get('title', '')}", use_container_width=True):
+            set_search_context(profile.get("title", ""), profile.get("country", ""))
+            st.rerun()
 
         if not tmdb_settings.enabled and not profile.get("poster_url"):
             st.warning("Real posters, richer cast, and social handles need TMDB credentials in .env or the session-only sidebar inputs.")
@@ -554,6 +641,22 @@ def render_recommendations(
                 st.caption(" • ".join(caption_parts))
                 st.write(trim_text(recommendation.get("overview", "No summary available.")))
 
+                action_one, action_two = st.columns(2)
+                if action_one.button(
+                    "Search This",
+                    key=f"search_recommendation_{recommendation.get('title', '')}_{index}",
+                    use_container_width=True,
+                ):
+                    set_search_context(recommendation.get("title", ""), recommendation.get("country", ""))
+                    st.rerun()
+                if action_two.button(
+                    "Save",
+                    key=f"save_recommendation_{recommendation.get('title', '')}_{index}",
+                    use_container_width=True,
+                ):
+                    add_watchlist_entry(build_watchlist_entry(recommendation))
+                    st.rerun()
+
                 tmdb_link = recommendation.get("tmdb_url") or build_tmdb_search_url(recommendation.get("title", ""))
                 youtube_link = build_youtube_search_url(f"{recommendation.get('title', '')} official drama")
                 st.link_button(
@@ -568,6 +671,99 @@ def render_recommendations(
                     key=f"yt_link_{recommendation.get('title', '')}_{index}",
                     use_container_width=True,
                 )
+
+
+def render_home_tab(catalog, recommender: DramaRecommender) -> None:
+    render_profile_header(
+        {
+            "source": "Home",
+            "country": "India, Pakistan, Turkey",
+            "status": MODEL_NAME,
+            "year": "2020-2026",
+        }
+    )
+
+    metric_one, metric_two, metric_three, metric_four = st.columns(4)
+    metric_one.metric("Starter titles", int(len(catalog)))
+    metric_two.metric("Countries", len(SUPPORTED_COUNTRIES))
+    metric_three.metric("Watchlist", len(st.session_state.get("watchlist", [])))
+    metric_four.metric("TMDB ready later", "Yes")
+
+    left_column, right_column = st.columns([1.15, 1])
+
+    with left_column:
+        with st.container(border=True):
+            st.markdown("### Quick Start")
+            st.text_input(
+                "Type a drama title to move into Search",
+                key="home_query",
+                placeholder="Try Tere Bin, Parizaad, Heeramandi, Yargi",
+            )
+            if st.button("Use This Search", key="home_use_query", use_container_width=True):
+                set_search_context(st.session_state.get("home_query", ""))
+                st.rerun()
+
+            st.caption("Popular starter picks")
+            starter_titles = catalog.sort_values(["year", "title"], ascending=[False, True])["title"].tolist()[:6]
+            starter_columns = st.columns(3)
+            for index, title in enumerate(starter_titles):
+                if starter_columns[index % 3].button(title, key=f"home_starter_{index}", use_container_width=True):
+                    set_search_context(title)
+                    st.rerun()
+
+    with right_column:
+        with st.container(border=True):
+            st.markdown("### Explore By Country")
+            for country in SUPPORTED_COUNTRIES:
+                st.markdown(f"**{country}**")
+                country_titles = recommender.available_titles(countries=[country], year_range=(2020, 2026))[:3]
+                country_columns = st.columns(max(1, min(3, len(country_titles))))
+                for index, title in enumerate(country_titles):
+                    if country_columns[index % len(country_columns)].button(
+                        title,
+                        key=f"home_country_{country}_{index}",
+                        use_container_width=True,
+                    ):
+                        set_search_context(title, country)
+                        st.rerun()
+
+            if st.button("Surprise Me", key="home_surprise", use_container_width=True):
+                random_title = random.choice(catalog["title"].tolist())
+                set_search_context(random_title)
+                st.rerun()
+
+
+def render_watchlist_tab() -> None:
+    st.markdown("### Watchlist")
+    st.caption("Save dramas while browsing, then reopen them here with one click.")
+
+    watchlist = st.session_state.get("watchlist", [])
+    if not watchlist:
+        st.info("Your watchlist is empty. Save a drama from Search, match results, recommendations, or Catalog.")
+        return
+
+    st.metric("Saved dramas", len(watchlist))
+    for index, item in enumerate(watchlist):
+        with st.container(border=True):
+            st.markdown(f"**{item.get('title', 'Saved drama')}**")
+            details = [item.get("country", ""), str(item.get("year", "")), item.get("source", "Saved")]
+            st.caption(" | ".join([detail for detail in details if detail and detail != "0"]))
+            st.write(trim_text(item.get("overview", "No summary stored yet."), limit=180))
+
+            action_one, action_two, action_three = st.columns(3)
+            if action_one.button("Search This", key=f"watchlist_search_{index}", use_container_width=True):
+                set_search_context(item.get("search_title", item.get("title", "")), item.get("country", ""))
+                st.rerun()
+            if item.get("tmdb_url"):
+                action_two.link_button(
+                    "Open TMDB",
+                    item["tmdb_url"],
+                    key=f"watchlist_tmdb_{index}",
+                    use_container_width=True,
+                )
+            if action_three.button("Remove", key=f"watchlist_remove_{index}", use_container_width=True):
+                st.session_state["watchlist"].pop(index)
+                st.rerun()
 
 
 def render_search_tab(
@@ -587,6 +783,8 @@ def render_search_tab(
 
     min_year = int(catalog["year"].min())
     max_year = max(2026, int(catalog["year"].max()))
+    if "search_year_range" not in st.session_state:
+        st.session_state["search_year_range"] = (max(2020, min_year), max_year)
 
     filter_column, query_column = st.columns([0.95, 1.25])
     with filter_column:
@@ -594,22 +792,31 @@ def render_search_tab(
             "Countries",
             options=list(SUPPORTED_COUNTRIES),
             default=list(SUPPORTED_COUNTRIES),
+            key="search_countries",
         )
         year_range = st.slider(
             "Year range",
             min_value=min_year,
             max_value=max_year,
             value=(max(2020, min_year), max_year),
+            key="search_year_range",
         )
 
     with query_column:
         query = st.text_input(
             "Search a drama title",
             placeholder="Try Tere Bin, Ishq Murshid, Yargi, Heeramandi, or your own spelling",
+            key="search_query",
         ).strip()
         fallback_titles = recommender.available_titles(countries=selected_countries, year_range=year_range)
         default_fallback = fallback_titles[0] if fallback_titles else catalog.iloc[0]["title"]
-        fallback_title = st.selectbox("Starter catalog fallback", options=fallback_titles or [default_fallback])
+        if st.session_state.get("search_fallback_title") not in (fallback_titles or [default_fallback]):
+            st.session_state["search_fallback_title"] = default_fallback
+        fallback_title = st.selectbox(
+            "Starter catalog fallback",
+            options=fallback_titles or [default_fallback],
+            key="search_fallback_title",
+        )
 
     preferred_country_code = COUNTRY_CODE_MAP[selected_countries[0]] if len(selected_countries) == 1 else None
     local_matches = recommender.search(query, countries=selected_countries, year_range=year_range, limit=5) if query else []
@@ -676,6 +883,22 @@ def render_catalog_tab(catalog) -> None:
 
     filtered = filtered.sort_values(["country", "year", "title"], ascending=[True, False, True])
     st.metric("Visible dramas", int(len(filtered)))
+    if not filtered.empty:
+        preview_title = st.selectbox("Preview a drama from the filtered catalog", options=filtered["title"].tolist(), key="catalog_preview_title")
+        preview_row = filtered[filtered["title"] == preview_title].iloc[0].to_dict()
+        with st.container(border=True):
+            st.markdown(f"**{preview_row['title']}**")
+            st.caption(f"{preview_row['country']} | {preview_row['year']} | {preview_row['network']}")
+            st.write(trim_text(preview_row.get("overview", "No summary available.")))
+
+            action_one, action_two = st.columns(2)
+            if action_one.button("Search This Drama", key="catalog_preview_search", use_container_width=True):
+                set_search_context(preview_row["title"], preview_row.get("country", ""))
+                st.rerun()
+            if action_two.button("Save to Watchlist", key="catalog_preview_save", use_container_width=True):
+                add_watchlist_entry(build_watchlist_entry(create_local_profile(preview_row)))
+                st.rerun()
+
     st.dataframe(
         filtered[["title", "country", "year", "language", "status", "network", "genres", "cast"]],
         use_container_width=True,
@@ -726,16 +949,21 @@ def render_setup_tab(tmdb_settings: TMDBSettings, youtube_settings: YouTubeSetti
 
 def main() -> None:
     inject_styles()
+    catalog = get_catalog(str(DATA_PATH))
+    recommender = get_recommender(str(DATA_PATH), str(ARTIFACT_PATH))
+    ensure_ui_state(catalog)
+
     tmdb_settings = build_tmdb_settings()
     youtube_settings = build_youtube_settings()
     render_sidebar_summary(tmdb_settings, youtube_settings)
 
-    catalog = get_catalog(str(DATA_PATH))
-    recommender = get_recommender(str(DATA_PATH), str(ARTIFACT_PATH))
-
-    search_tab, catalog_tab, setup_tab = st.tabs(["Search", "Catalog", "Setup"])
+    home_tab, search_tab, watchlist_tab, catalog_tab, setup_tab = st.tabs(["Home", "Search", "Watchlist", "Catalog", "Setup"])
+    with home_tab:
+        render_home_tab(catalog, recommender)
     with search_tab:
         render_search_tab(catalog, recommender, tmdb_settings, youtube_settings)
+    with watchlist_tab:
+        render_watchlist_tab()
     with catalog_tab:
         render_catalog_tab(catalog)
     with setup_tab:

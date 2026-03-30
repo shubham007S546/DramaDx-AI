@@ -1,26 +1,25 @@
 # DramaDx AI
 
-A Streamlit-first starter project for a drama discovery and recommendation app, ready before the live API keys are added.
+A Streamlit-first drama discovery app for Indian, Pakistani, and Turkish series. It works with the starter dataset right away, then becomes richer when you add TMDB and YouTube credentials.
 
-What is already included:
+What is included:
 
-- Streamlit UI only, no separate backend/frontend stack
-- Clean tabbed layout with `Home`, `Discover`, `Catalog`, and `Credits`
-- ML recommendation model using TF-IDF + latent semantic reduction + nearest neighbors
-- Starter movie catalog so recommendations work offline
-- Optional TMDB enrichment for posters, ratings, and links after you add your key
-- Optional YouTube trailer enrichment after you add a YouTube Data API key
-- TMDB attribution block with the required notice and approved logo link
+- interactive tabs for `Home`, `Search`, `Watchlist`, `Catalog`, and `Setup`
+- starter drama catalog for offline search and recommendations
+- local similarity model built with TF-IDF, SVD, and nearest neighbors
+- optional TMDB live search for posters, cast details, social links, and drama profiles
+- optional YouTube matching for watch links and quick video previews
+- TMDB attribution and official reference links
 
 ## Project Structure
 
-- `app.py` - Streamlit application
-- `src/data.py` - dataset loading and feature preparation
-- `src/recommender.py` - ML recommendation model
-- `src/tmdb.py` - optional TMDB API integration
-- `src/youtube.py` - optional YouTube trailer integration
-- `scripts/train_model.py` - training/saving the recommendation artifact
-- `data/movies_seed.csv` - starter catalog
+- `app.py` - main Streamlit application
+- `src/data.py` - catalog loading and normalization
+- `src/recommender.py` - local drama recommender and fuzzy search
+- `src/tmdb.py` - TMDB live TV search and cast/profile helpers
+- `src/youtube.py` - YouTube search helpers
+- `scripts/train_model.py` - training and saving the recommendation artifact
+- `data/dramas_seed.csv` - starter catalog
 
 ## Setup
 
@@ -30,13 +29,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create a local `.env` file from `.env.example` and add your own TMDB and YouTube keys before running live integrations.
-
-## Train The Local Model
-
-```powershell
-python scripts/train_model.py
-```
+Create a local `.env` file from `.env.example` and add your TMDB and YouTube keys when you want live enrichment.
 
 ## Run The App
 
@@ -44,11 +37,9 @@ python scripts/train_model.py
 python -m streamlit run app.py
 ```
 
-## Add TMDB Later
+## Optional Credentials
 
-The app already works without TMDB credentials. When you get your API access, you can either:
-
-1. Put it in environment variables:
+TMDB:
 
 ```powershell
 $env:TMDB_API_KEY="your_key_here"
@@ -60,44 +51,38 @@ or
 $env:TMDB_ACCESS_TOKEN="your_access_token_here"
 ```
 
-2. Keep it in private runtime secrets.
-
-For local private storage with Streamlit, use:
-
-```toml
-# .streamlit/secrets.toml
-TMDB_API_KEY = "your_key_here"
-TMDB_ACCESS_TOKEN = "your_access_token_here"
-YOUTUBE_API_KEY = "your_key_here"
-```
-
-This file is already ignored by git in this project.
-
-## Add YouTube Trailers
-
-The app can also show trailers for the selected movie and recommendations.
+YouTube:
 
 ```powershell
 $env:YOUTUBE_API_KEY="your_key_here"
 ```
 
-You can also keep the YouTube key in private runtime secrets or environment variables.
+You can also store the same keys in `.streamlit/secrets.toml`:
 
-## TMDB Attribution
+```toml
+TMDB_API_KEY = "your_key_here"
+TMDB_ACCESS_TOKEN = "your_access_token_here"
+YOUTUBE_API_KEY = "your_key_here"
+```
 
-This project already includes the required statement:
+## Current UX
 
-`This product uses the TMDB API but is not endorsed or certified by TMDB.`
-
-Official TMDB references used for compliance:
-
-- [TMDB FAQ](https://developer.themoviedb.org/docs/faq)
-- [TMDB Logos & Attribution](https://www.themoviedb.org/about/logos-attribution?language=en-US)
+- `Home` gives quick picks, country-based browsing, and a fast way into search
+- `Search` combines starter-catalog matching with optional TMDB live search
+- `Watchlist` saves titles you want to revisit
+- `Catalog` lets you filter and preview the starter dataset
+- `Setup` explains the live-data requirements and attribution links
 
 ## Notes
 
-- You can replace `data/movies_seed.csv` with a larger catalog later.
-- If the saved artifact is missing, the app can fit the recommender from the CSV automatically.
-- Once you share your TMDB key, the same app will start pulling live posters and richer metadata.
-- Once you add a YouTube key, the app can embed trailer links from the YouTube Data API.
-- The `Home` tab is the landing page, `Discover` handles recommendations, `Catalog` is for browsing/filtering, and `Credits` keeps API links and attribution in one place.
+- The starter dataset is intentionally small and can be replaced later with a larger ETL output.
+- The recommender artifact retrains automatically when the CSV changes.
+- TMDB is optional, but it unlocks the strongest version of the app.
+- This project includes the required TMDB notice:
+
+`This product uses the TMDB API but is not endorsed or certified by TMDB.`
+
+Official references:
+
+- [TMDB FAQ](https://developer.themoviedb.org/docs/faq)
+- [TMDB Logos & Attribution](https://www.themoviedb.org/about/logos-attribution?language=en-US)
