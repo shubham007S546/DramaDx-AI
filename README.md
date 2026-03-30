@@ -1,25 +1,25 @@
 # DramaDx AI
 
-A Streamlit-first drama discovery app for Indian, Pakistani, and Turkish series. It works with the starter dataset right away, then becomes richer when you add TMDB and YouTube credentials.
+DramaDx AI is a Streamlit drama discovery app for Indian, Pakistani, and Turkish serials.
 
-What is included:
+What is included now:
 
-- interactive tabs for `Home`, `Search`, `Watchlist`, `Catalog`, and `Setup`
-- starter drama catalog for offline search and recommendations
-- local similarity model built with TF-IDF, SVD, and nearest neighbors
-- optional TMDB live search for posters, cast details, social links, and drama profiles
-- optional YouTube matching for watch links and quick video previews
-- TMDB attribution and official reference links
+- Drama-first Streamlit UI with `Home`, `Search`, `Watchlist`, `Catalog`, and `Setup`
+- Starter drama catalog for offline use
+- Local similarity recommender for related drama suggestions
+- TMDB TV search and detail integration for live posters, cast, social links, and actor mini-bios
+- YouTube lookup support for official drama/trailer searches
+- Private key handling through local `.env`, Streamlit secrets, or session-only sidebar inputs
 
 ## Project Structure
 
-- `app.py` - main Streamlit application
-- `src/data.py` - catalog loading and normalization
-- `src/recommender.py` - local drama recommender and fuzzy search
-- `src/tmdb.py` - TMDB live TV search and cast/profile helpers
-- `src/youtube.py` - YouTube search helpers
-- `scripts/train_model.py` - training and saving the recommendation artifact
-- `data/dramas_seed.csv` - starter catalog
+- `app.py` - Streamlit application
+- `src/data.py` - drama catalog loading and normalization
+- `src/recommender.py` - local drama recommender
+- `src/tmdb.py` - TMDB TV search, detail, cast, and person profile integration
+- `src/youtube.py` - YouTube search helper
+- `scripts/train_model.py` - trains and saves the local recommender artifact
+- `data/dramas_seed.csv` - starter drama dataset
 
 ## Setup
 
@@ -29,7 +29,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create a local `.env` file from `.env.example` and add your TMDB and YouTube keys when you want live enrichment.
+Create a local `.env` file from `.env.example` if you want live TMDB or YouTube enrichment.
 
 ## Run The App
 
@@ -37,48 +37,43 @@ Create a local `.env` file from `.env.example` and add your TMDB and YouTube key
 python -m streamlit run app.py
 ```
 
-## Optional Credentials
+## Local Private Keys
 
-TMDB:
+Keep keys only on your machine.
 
-```powershell
-$env:TMDB_API_KEY="your_key_here"
+```env
+TMDB_BEARER_TOKEN=your_tmdb_token
+TMDB_API_KEY=your_tmdb_api_key_optional
+YOUTUBE_API_KEY=your_youtube_key
+OMDB_API_KEY=your_omdb_key_optional
+TMDB_LANGUAGE=en-US
+YOUTUBE_REGION_CODE=IN
 ```
 
-or
+You can also use `.streamlit/secrets.toml` or the session-only sidebar fields.
 
-```powershell
-$env:TMDB_ACCESS_TOKEN="your_access_token_here"
-```
+## Current Behavior
 
-YouTube:
-
-```powershell
-$env:YOUTUBE_API_KEY="your_key_here"
-```
-
-You can also store the same keys in `.streamlit/secrets.toml`:
-
-```toml
-TMDB_API_KEY = "your_key_here"
-TMDB_ACCESS_TOKEN = "your_access_token_here"
-YOUTUBE_API_KEY = "your_key_here"
-```
-
-## Current UX
-
-- `Home` gives quick picks, country-based browsing, and a fast way into search
-- `Search` combines starter-catalog matching with optional TMDB live search
-- `Watchlist` saves titles you want to revisit
-- `Catalog` lets you filter and preview the starter dataset
-- `Setup` explains the live-data requirements and attribution links
+- Without keys:
+  - the app still works with the starter drama catalog
+  - search, recommendations, watchlist, and fallback links still work
+  - posters are replaced by styled placeholders
+- With TMDB:
+  - live TV drama results
+  - real posters
+  - richer cast
+  - actor short bios
+  - social handles when available
+- With YouTube:
+  - best-match watch/trailer result buttons
 
 ## Notes
 
-- The starter dataset is intentionally small and can be replaced later with a larger ETL output.
-- The recommender artifact retrains automatically when the CSV changes.
-- TMDB is optional, but it unlocks the strongest version of the app.
-- This project includes the required TMDB notice:
+- The starter dataset is only a bootstrap layer, not the final 2020-2026 production dataset.
+- Replace `data/dramas_seed.csv` later with your ETL output for full coverage.
+- The recommender artifact retrains automatically when the dataset changes.
+
+## TMDB Attribution
 
 `This product uses the TMDB API but is not endorsed or certified by TMDB.`
 
