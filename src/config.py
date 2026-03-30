@@ -7,12 +7,15 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
 
-DATA_PATH = ROOT_DIR / "data" / "movies_seed.csv"
-ARTIFACT_PATH = ROOT_DIR / "artifacts" / "movie_recommender.joblib"
+DATA_PATH = ROOT_DIR / "data" / "dramas_seed.csv"
+ARTIFACT_PATH = ROOT_DIR / "artifacts" / "drama_recommender.joblib"
 
-APP_TITLE = "CineMatch AI"
-APP_SUBTITLE = "Streamlit + ML movie recommendations with optional TMDB live enrichment"
-MODEL_NAME = "TF-IDF + SVD + Nearest Neighbors"
+APP_TITLE = "DramaDx AI"
+APP_SUBTITLE = (
+    "Search Indian, Pakistani, and Turkish dramas with a starter catalog now, "
+    "then unlock live posters, cast, links, and actor bios with TMDB."
+)
+MODEL_NAME = "Drama similarity engine"
 
 TMDB_NOTICE = "This product uses the TMDB API but is not endorsed or certified by TMDB."
 TMDB_SITE_URL = "https://www.themoviedb.org/"
@@ -28,3 +31,5 @@ DEFAULT_TMDB_LANGUAGE = os.getenv("TMDB_LANGUAGE", "en-US")
 YOUTUBE_API_DOCS_URL = "https://developers.google.com/youtube/v3/docs/search/list"
 YOUTUBE_SITE_URL = "https://www.youtube.com/"
 DEFAULT_YOUTUBE_REGION = os.getenv("YOUTUBE_REGION_CODE", "IN")
+
+SUPPORTED_COUNTRIES = ("India", "Pakistan", "Turkey")

@@ -60,9 +60,9 @@ or
 $env:TMDB_ACCESS_TOKEN="your_access_token_here"
 ```
 
-2. Paste it directly into the Streamlit sidebar while the app is running.
+2. Keep it in private runtime secrets.
 
-For local private storage with Streamlit, you can also use:
+For local private storage with Streamlit, use:
 
 ```toml
 # .streamlit/secrets.toml
@@ -81,7 +81,7 @@ The app can also show trailers for the selected movie and recommendations.
 $env:YOUTUBE_API_KEY="your_key_here"
 ```
 
-You can also paste the key directly into the Streamlit sidebar at runtime.
+You can also keep the YouTube key in private runtime secrets or environment variables.
 
 ## TMDB Attribution
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pathlib import Path
 
 import pandas as pd
@@ -11,16 +13,44 @@ COLUMN_ALIASES = {
     "plot": "overview",
     "description": "overview",
     "summary": "overview",
+    "series_title": "title",
+    "show_title": "title",
 }
 
-REQUIRED_COLUMNS = ("title", "year", "genres", "keywords", "overview")
-OPTIONAL_COLUMNS = ("director", "cast")
-TEXT_COLUMNS = ("title", "genres", "keywords", "director", "cast", "overview")
+REQUIRED_COLUMNS = (
+    "title",
+    "year",
+    "country",
+    "language",
+    "status",
+    "genres",
+    "themes",
+    "keywords",
+    "network",
+    "cast",
+    "aliases",
+    "overview",
+)
+OPTIONAL_COLUMNS = ("watch_hint", "poster_url")
+TEXT_COLUMNS = (
+    "title",
+    "country",
+    "language",
+    "status",
+    "genres",
+    "themes",
+    "keywords",
+    "network",
+    "cast",
+    "aliases",
+    "overview",
+    "watch_hint",
+    "poster_url",
+)
 
 
 def _normalize_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
-    renamed = dataframe.rename(columns={col: COLUMN_ALIASES.get(col, col) for col in dataframe.columns})
-    return renamed
+    return dataframe.rename(columns={col: COLUMN_ALIASES.get(col, col) for col in dataframe.columns})
 
 
 def _clean_text(value: object) -> str:
@@ -29,7 +59,7 @@ def _clean_text(value: object) -> str:
     return " ".join(str(value).replace("|", ", ").split())
 
 
-def load_movies(csv_path: Path) -> pd.DataFrame:
+def load_catalog(csv_path: Path) -> pd.DataFrame:
     dataframe = pd.read_csv(csv_path)
     dataframe = _normalize_columns(dataframe)
 
@@ -46,16 +76,21 @@ def load_movies(csv_path: Path) -> pd.DataFrame:
         dataframe[column] = dataframe[column].map(_clean_text)
 
     dataframe["year"] = pd.to_numeric(dataframe["year"], errors="coerce").fillna(0).astype(int)
-    dataframe = dataframe.drop_duplicates(subset=["title", "year"]).reset_index(drop=True)
+    dataframe = dataframe.drop_duplicates(subset=["title", "year", "country"]).reset_index(drop=True)
 
     dataframe["feature_text"] = dataframe.apply(
         lambda row: " ".join(
             part
             for part in (
                 row["title"],
+                row["aliases"],
+                row["country"],
+                row["language"],
+                row["status"],
                 row["genres"],
+                row["themes"],
                 row["keywords"],
-                row["director"],
+                row["network"],
                 row["cast"],
                 row["overview"],
             )
@@ -64,3 +99,7 @@ def load_movies(csv_path: Path) -> pd.DataFrame:
         axis=1,
     )
     return dataframe
+
+
+def load_movies(csv_path: Path) -> pd.DataFrame:
+    return load_catalog(csv_path)

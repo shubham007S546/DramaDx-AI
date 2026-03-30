@@ -1,24 +1,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
+from urllib.parse import quote_plus
 
 import requests
 
 
 API_BASE_URL = "https://api.themoviedb.org/3"
 FALLBACK_IMAGE_BASE_URL = "https://image.tmdb.org/t/p/"
+COUNTRY_NAMES = {
+    "IN": "India",
+    "PK": "Pakistan",
+    "TR": "Turkey",
+}
 
 
-@dataclass
+@dataclass(frozen=True)
 class TMDBSettings:
     api_key: str = ""
     access_token: str = ""
     language: str = "en-US"
-    timeout_seconds: int = 4
+    timeout_seconds: int = 8
 
     @property
     def enabled(self) -> bool:
         return bool(self.api_key or self.access_token)
+
+
+def _normalize_text(value: object) -> str:
+    return " ".join(str(value).lower().split())
 
 
 def _request(path: str, settings: TMDBSettings, params: dict | None = None) -> dict | None:
@@ -48,67 +59,296 @@ def _request(path: str, settings: TMDBSettings, params: dict | None = None) -> d
     return response.json()
 
 
-def get_image_base_url(settings: TMDBSettings) -> str:
-    payload = _request("/configuration", settings)
+@lru_cache(maxsize=8)
+def _cached_image_base_url(api_key: str, access_token: str, language: str, timeout_seconds: int) -> str:
+    payload = _request(
+        "/configuration",
+        TMDBSettings(
+            api_key=api_key,
+            access_token=access_token,
+            language=language,
+            timeout_seconds=timeout_seconds,
+        ),
+    )
     if not payload:
         return f"{FALLBACK_IMAGE_BASE_URL}w500"
 
     images = payload.get("images", {})
     base_url = images.get("secure_base_url") or FALLBACK_IMAGE_BASE_URL
     poster_sizes = images.get("poster_sizes") or ["w500"]
-
     preferred_size = "w500" if "w500" in poster_sizes else poster_sizes[-1]
     return f"{base_url}{preferred_size}"
 
 
-def _pick_best_result(results: list[dict], title: str, year: int | None) -> dict | None:
+def get_image_base_url(settings: TMDBSettings) -> str:
+    return _cached_image_base_url(
+        settings.api_key,
+        settings.access_token,
+        settings.language,
+        settings.timeout_seconds,
+    )
+
+
+def build_image_url(path: str | None, settings: TMDBSettings) -> str:
+    if not path:
+        return ""
+    return f"{get_image_base_url(settings)}{path}"
+
+
+def build_tmdb_search_url(query: str) -> str:
+    return f"https://www.themoviedb.org/search/tv?query={quote_plus(query)}"
+
+
+def _social_links(external_ids: dict | None) -> dict[str, str]:
+    payload = external_ids or {}
+    links: dict[str, str] = {}
+    if payload.get("instagram_id"):
+        links["Instagram"] = f"https://www.instagram.com/{payload['instagram_id']}/"
+    if payload.get("twitter_id"):
+        links["X"] = f"https://x.com/{payload['twitter_id']}"
+    if payload.get("facebook_id"):
+        links["Facebook"] = f"https://www.facebook.com/{payload['facebook_id']}"
+    if payload.get("imdb_id"):
+        links["IMDb"] = f"https://www.imdb.com/title/{payload['imdb_id']}/"
+    return links
+
+
+def _person_social_links(external_ids: dict | None) -> dict[str, str]:
+    payload = external_ids or {}
+    links: dict[str, str] = {}
+    if payload.get("instagram_id"):
+        links["Instagram"] = f"https://www.instagram.com/{payload['instagram_id']}/"
+    if payload.get("twitter_id"):
+        links["X"] = f"https://x.com/{payload['twitter_id']}"
+    if payload.get("facebook_id"):
+        links["Facebook"] = f"https://www.facebook.com/{payload['facebook_id']}"
+    if payload.get("imdb_id"):
+        links["IMDb"] = f"https://www.imdb.com/name/{payload['imdb_id']}/"
+    if payload.get("tiktok_id"):
+        links["TikTok"] = f"https://www.tiktok.com/@{payload['tiktok_id']}"
+    return links
+
+
+def _country_names(country_codes: list[str]) -> list[str]:
+    return [COUNTRY_NAMES.get(code, code) for code in country_codes if code]
+
+
+def _pick_best_result(
+    results: list[dict],
+    query: str,
+    preferred_country_code: str | None = None,
+    year_range: tuple[int, int] | None = None,
+) -> dict | None:
     if not results:
         return None
 
-    normalized_title = " ".join(title.lower().split())
-    if year:
-        for result in results:
-            release_date = result.get("release_date", "")
-            candidate_title = " ".join(result.get("title", "").lower().split())
-            if candidate_title == normalized_title and release_date.startswith(str(year)):
-                return result
-
+    normalized_query = _normalize_text(query)
+    best_result = None
+    best_score = -1.0
     for result in results:
-        candidate_title = " ".join(result.get("title", "").lower().split())
-        if candidate_title == normalized_title:
-            return result
+        title = result.get("name") or result.get("original_name") or ""
+        original_title = result.get("original_name") or ""
+        first_air_date = result.get("first_air_date") or ""
+        candidate_country_codes = result.get("origin_country") or []
 
-    return results[0]
+        score = max(
+            _normalize_text(title) == normalized_query and 3.5 or 0.0,
+            _normalize_text(original_title) == normalized_query and 3.2 or 0.0,
+        )
+        score += _similarity(normalized_query, _normalize_text(title)) * 2
+        score += _similarity(normalized_query, _normalize_text(original_title)) * 1.6
+        if normalized_query in _normalize_text(title):
+            score += 1.2
+        if normalized_query in _normalize_text(original_title):
+            score += 0.9
+        if preferred_country_code and preferred_country_code in candidate_country_codes:
+            score += 1.1
+        if year_range and first_air_date:
+            year = int(first_air_date[:4])
+            if year_range[0] <= year <= year_range[1]:
+                score += 0.6
+
+        if score > best_score:
+            best_score = score
+            best_result = result
+
+    return best_result
 
 
-def fetch_movie_metadata(title: str, settings: TMDBSettings, year: int | None = None) -> dict | None:
+def _similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    from difflib import SequenceMatcher
+
+    return SequenceMatcher(None, left, right).ratio()
+
+
+def search_tv_titles(
+    query: str,
+    settings: TMDBSettings,
+    preferred_country_code: str | None = None,
+    year_range: tuple[int, int] | None = None,
+    limit: int = 8,
+) -> list[dict]:
+    params: dict[str, object] = {
+        "query": query,
+        "include_adult": "false",
+        "page": 1,
+    }
+    if year_range and year_range[0] == year_range[1]:
+        params["first_air_date_year"] = year_range[0]
+
+    payload = _request("/search/tv", settings, params=params)
+    if not payload:
+        return []
+
+    results: list[tuple[float, dict]] = []
+    for result in payload.get("results", []):
+        title = result.get("name") or result.get("original_name") or ""
+        score = _similarity(_normalize_text(query), _normalize_text(title))
+        if preferred_country_code and preferred_country_code in (result.get("origin_country") or []):
+            score += 0.6
+        results.append((score, result))
+
+    results.sort(key=lambda item: item[0], reverse=True)
+    image_base = get_image_base_url(settings)
+    normalized: list[dict] = []
+    for _, result in results[:limit]:
+        tv_id = result.get("id")
+        poster_path = result.get("poster_path") or ""
+        normalized.append(
+            {
+                "tmdb_id": tv_id,
+                "title": result.get("name") or result.get("original_name") or "",
+                "original_title": result.get("original_name") or "",
+                "overview": result.get("overview") or "",
+                "first_air_date": result.get("first_air_date") or "",
+                "year": int((result.get("first_air_date") or "0")[:4] or 0),
+                "country_codes": result.get("origin_country") or [],
+                "country_names": _country_names(result.get("origin_country") or []),
+                "poster_url": f"{image_base}{poster_path}" if poster_path else "",
+                "tmdb_url": f"https://www.themoviedb.org/tv/{tv_id}" if tv_id else build_tmdb_search_url(query),
+            }
+        )
+    return normalized
+
+
+def fetch_tv_profile(
+    query: str,
+    settings: TMDBSettings,
+    preferred_country_code: str | None = None,
+    year_range: tuple[int, int] | None = None,
+) -> dict | None:
     payload = _request(
-        "/search/movie",
+        "/search/tv",
         settings,
         params={
-            "query": title,
+            "query": query,
             "include_adult": "false",
+            "page": 1,
         },
     )
     if not payload:
         return None
 
-    result = _pick_best_result(payload.get("results", []), title, year)
+    result = _pick_best_result(
+        payload.get("results", []),
+        query=query,
+        preferred_country_code=preferred_country_code,
+        year_range=year_range,
+    )
     if not result:
         return None
 
-    image_base_url = get_image_base_url(settings)
-    poster_path = result.get("poster_path") or ""
-    backdrop_path = result.get("backdrop_path") or ""
-    movie_id = result.get("id")
+    tv_id = result.get("id")
+    details = _request(f"/tv/{tv_id}", settings, params={"append_to_response": "external_ids"}) or {}
+    credits = _request(f"/tv/{tv_id}/aggregate_credits", settings) or {}
+    recommendations = _request(f"/tv/{tv_id}/recommendations", settings) or {}
+
+    origin_country = details.get("origin_country") or result.get("origin_country") or []
+    genres = [genre.get("name", "") for genre in details.get("genres", []) if genre.get("name")]
+    networks = [network.get("name", "") for network in details.get("networks", []) if network.get("name")]
+    cast_entries = []
+    for cast_member in credits.get("cast", [])[:16]:
+        role = ""
+        roles = cast_member.get("roles") or []
+        if roles:
+            role = roles[0].get("character", "")
+        cast_entries.append(
+            {
+                "person_id": cast_member.get("id"),
+                "name": cast_member.get("name", ""),
+                "character": role,
+                "episode_count": cast_member.get("total_episode_count", 0),
+                "profile_url": build_image_url(cast_member.get("profile_path"), settings),
+            }
+        )
+
+    recommendation_cards = []
+    for item in recommendations.get("results", [])[:6]:
+        recommendation_cards.append(
+            {
+                "title": item.get("name") or item.get("original_name") or "",
+                "year": int((item.get("first_air_date") or "0")[:4] or 0),
+                "overview": item.get("overview") or "",
+                "country": ", ".join(_country_names(item.get("origin_country") or [])),
+                "genres": ", ".join(genres[:2]) if genres else "Drama",
+                "poster_url": build_image_url(item.get("poster_path"), settings),
+                "tmdb_url": f"https://www.themoviedb.org/tv/{item.get('id')}",
+            }
+        )
+
+    social_links = _social_links(details.get("external_ids"))
+    if details.get("homepage"):
+        social_links["Official site"] = details["homepage"]
+
+    country_names = _country_names(origin_country)
+    return {
+        "source": "TMDB live",
+        "tmdb_id": tv_id,
+        "title": details.get("name") or result.get("name") or "",
+        "original_title": details.get("original_name") or result.get("original_name") or "",
+        "year": int((details.get("first_air_date") or result.get("first_air_date") or "0")[:4] or 0),
+        "country": ", ".join(country_names),
+        "country_codes": origin_country,
+        "language": (details.get("spoken_languages") or [{}])[0].get("english_name")
+        if details.get("spoken_languages")
+        else details.get("original_language", "").upper(),
+        "status": details.get("status") or "Series",
+        "genres": genres,
+        "themes": genres[:3],
+        "network": ", ".join(networks),
+        "overview": details.get("overview") or result.get("overview") or "",
+        "cast": cast_entries,
+        "aliases": details.get("original_name") or "",
+        "watch_hint": "Use the links below to check official listings and videos.",
+        "poster_url": build_image_url(details.get("poster_path"), settings),
+        "backdrop_url": build_image_url(details.get("backdrop_path"), settings),
+        "tmdb_url": f"https://www.themoviedb.org/tv/{tv_id}",
+        "social_links": social_links,
+        "recommendations": recommendation_cards,
+    }
+
+
+def fetch_person_profile(person_id: int, settings: TMDBSettings) -> dict | None:
+    details = _request(f"/person/{person_id}", settings, params={"append_to_response": "external_ids"})
+    if not details:
+        return None
+
+    biography = details.get("biography") or ""
+    short_bio = biography.split(". ")[0].strip()
+    if short_bio and not short_bio.endswith("."):
+        short_bio += "."
+    if not short_bio:
+        known_for = details.get("known_for_department") or "acting"
+        short_bio = f"{details.get('name', 'This performer')} is known for {known_for.lower()}."
 
     return {
-        "tmdb_id": movie_id,
-        "poster_url": f"{image_base_url}{poster_path}" if poster_path else "",
-        "backdrop_url": f"{image_base_url}{backdrop_path}" if backdrop_path else "",
-        "vote_average": result.get("vote_average"),
-        "vote_count": result.get("vote_count"),
-        "release_date": result.get("release_date", ""),
-        "overview": result.get("overview", ""),
-        "tmdb_url": f"https://www.themoviedb.org/movie/{movie_id}" if movie_id else "",
+        "name": details.get("name", ""),
+        "profile_url": build_image_url(details.get("profile_path"), settings),
+        "known_for": details.get("known_for_department", ""),
+        "short_bio": short_bio,
+        "birthday": details.get("birthday", ""),
+        "place_of_birth": details.get("place_of_birth", ""),
+        "social_links": _person_social_links(details.get("external_ids")),
     }

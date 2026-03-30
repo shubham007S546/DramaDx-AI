@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -11,19 +12,23 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.neighbors import NearestNeighbors
 
 
-def _normalize_title(title: str) -> str:
-    return " ".join(str(title).lower().split())
+def _normalize_text(value: object) -> str:
+    return " ".join(str(value).lower().replace("-", " ").split())
+
+
+def _split_csv_text(value: object) -> list[str]:
+    return [item.strip() for item in str(value).split(",") if item and item.strip()]
 
 
 @dataclass
-class MovieRecommender:
-    max_features: int = 4000
+class DramaRecommender:
+    max_features: int = 5000
     latent_dim: int = 50
     random_state: int = 42
     vectorizer: TfidfVectorizer = field(init=False)
     reducer: TruncatedSVD | None = field(default=None, init=False)
     neighbors: NearestNeighbors = field(init=False)
-    movies: pd.DataFrame = field(default_factory=pd.DataFrame, init=False)
+    catalog: pd.DataFrame = field(default_factory=pd.DataFrame, init=False)
     embeddings: Any = field(default=None, init=False)
     title_lookup: dict[str, int] = field(default_factory=dict, init=False)
 
@@ -35,9 +40,9 @@ class MovieRecommender:
         )
         self.neighbors = NearestNeighbors(metric="cosine", algorithm="brute")
 
-    def fit(self, movies: pd.DataFrame) -> "MovieRecommender":
-        self.movies = movies.reset_index(drop=True).copy()
-        matrix = self.vectorizer.fit_transform(self.movies["feature_text"])
+    def fit(self, catalog: pd.DataFrame) -> "DramaRecommender":
+        self.catalog = catalog.reset_index(drop=True).copy()
+        matrix = self.vectorizer.fit_transform(self.catalog["feature_text"])
 
         max_components = min(self.latent_dim, matrix.shape[0] - 1, matrix.shape[1] - 1)
         if max_components >= 2:
@@ -48,65 +53,134 @@ class MovieRecommender:
             self.embeddings = matrix
 
         self.neighbors.fit(self.embeddings)
-        self.title_lookup = {
-            _normalize_title(title): index for index, title in enumerate(self.movies["title"].tolist())
-        }
+        self.title_lookup = {}
+        for index, row in self.catalog.iterrows():
+            self.title_lookup[_normalize_text(row["title"])] = index
+            for alias in _split_csv_text(row.get("aliases", "")):
+                self.title_lookup.setdefault(_normalize_text(alias), index)
         return self
 
-    def available_titles(self) -> list[str]:
-        return self.movies["title"].sort_values().tolist()
-
-    def _query_vector(self, movie_index: int) -> Any:
-        vector = self.embeddings[movie_index]
+    def _query_vector(self, index: int) -> Any:
+        vector = self.embeddings[index]
         if hasattr(vector, "ndim") and getattr(vector, "ndim") == 1:
             return vector.reshape(1, -1)
         return vector
 
-    def recommend(self, title: str, top_n: int = 5) -> list[dict[str, Any]]:
-        if self.movies.empty:
+    def _filter_catalog(
+        self,
+        countries: list[str] | None = None,
+        year_range: tuple[int, int] | None = None,
+    ) -> pd.DataFrame:
+        filtered = self.catalog
+        if countries:
+            allowed = {country.lower() for country in countries}
+            filtered = filtered[filtered["country"].str.lower().isin(allowed)]
+        if year_range:
+            start_year, end_year = year_range
+            filtered = filtered[(filtered["year"] >= start_year) & (filtered["year"] <= end_year)]
+        return filtered.reset_index(drop=True)
+
+    def available_titles(
+        self,
+        countries: list[str] | None = None,
+        year_range: tuple[int, int] | None = None,
+    ) -> list[str]:
+        filtered = self._filter_catalog(countries=countries, year_range=year_range)
+        return filtered.sort_values(["title", "year"])["title"].tolist()
+
+    def search(
+        self,
+        query: str,
+        countries: list[str] | None = None,
+        year_range: tuple[int, int] | None = None,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        filtered = self._filter_catalog(countries=countries, year_range=year_range)
+        if filtered.empty:
+            return []
+
+        normalized_query = _normalize_text(query)
+        if not normalized_query:
+            return [row.to_dict() for _, row in filtered.sort_values(["year", "title"], ascending=[False, True]).head(limit).iterrows()]
+
+        scored_rows: list[tuple[float, dict[str, Any]]] = []
+        for _, row in filtered.iterrows():
+            title_norm = _normalize_text(row["title"])
+            alias_values = _split_csv_text(row.get("aliases", ""))
+            alias_norms = [_normalize_text(alias) for alias in alias_values]
+            overview_norm = _normalize_text(row.get("overview", ""))
+            keywords_norm = _normalize_text(row.get("keywords", ""))
+
+            ratio = max(
+                [SequenceMatcher(None, normalized_query, title_norm).ratio()]
+                + [SequenceMatcher(None, normalized_query, alias).ratio() for alias in alias_norms]
+            )
+
+            score = ratio
+            if normalized_query == title_norm:
+                score += 2.5
+            if normalized_query in title_norm:
+                score += 1.5
+            if any(normalized_query == alias for alias in alias_norms):
+                score += 2.0
+            if any(normalized_query in alias for alias in alias_norms):
+                score += 1.2
+            if normalized_query in overview_norm or normalized_query in keywords_norm:
+                score += 0.3
+
+            row_dict = row.to_dict()
+            row_dict["match_score"] = round(score, 4)
+            scored_rows.append((score, row_dict))
+
+        scored_rows.sort(key=lambda item: (item[0], item[1]["year"]), reverse=True)
+        matches = [row for score, row in scored_rows if score >= 0.45]
+        if not matches:
+            matches = [row for _, row in scored_rows]
+        return matches[:limit]
+
+    def get_drama(self, title_or_alias: str) -> dict[str, Any]:
+        lookup_key = _normalize_text(title_or_alias)
+        if lookup_key in self.title_lookup:
+            return self.catalog.iloc[self.title_lookup[lookup_key]].to_dict()
+
+        matches = self.search(title_or_alias, limit=1)
+        if not matches:
+            raise KeyError(f"Drama '{title_or_alias}' was not found in the catalog.")
+        return matches[0]
+
+    def recommend(self, title_or_alias: str, top_n: int = 6) -> list[dict[str, Any]]:
+        if self.catalog.empty:
             raise ValueError("The recommender has not been trained yet.")
 
-        lookup_key = _normalize_title(title)
-        if lookup_key not in self.title_lookup:
-            raise KeyError(f"Movie '{title}' was not found in the catalog.")
-
-        movie_index = self.title_lookup[lookup_key]
-        neighbor_count = min(top_n + 1, len(self.movies))
+        drama = self.get_drama(title_or_alias)
+        lookup_key = _normalize_text(drama["title"])
+        catalog_index = self.title_lookup[lookup_key]
+        neighbor_count = min(top_n + 1, len(self.catalog))
         distances, indices = self.neighbors.kneighbors(
-            self._query_vector(movie_index),
+            self._query_vector(catalog_index),
             n_neighbors=neighbor_count,
         )
 
         recommendations: list[dict[str, Any]] = []
         for distance, index in zip(distances[0], indices[0]):
-            if index == movie_index:
+            if index == catalog_index:
                 continue
-
-            row = self.movies.iloc[index]
+            row = self.catalog.iloc[index]
             recommendations.append(
                 {
-                    "title": row["title"],
-                    "year": int(row["year"]),
-                    "genres": row["genres"],
-                    "keywords": row["keywords"],
-                    "overview": row["overview"],
-                    "director": row.get("director", ""),
+                    **row.to_dict(),
                     "similarity": round(1 - float(distance), 4),
                 }
             )
-
         return recommendations[:top_n]
-
-    def get_movie(self, title: str) -> dict[str, Any]:
-        lookup_key = _normalize_title(title)
-        if lookup_key not in self.title_lookup:
-            raise KeyError(f"Movie '{title}' was not found in the catalog.")
-        return self.movies.iloc[self.title_lookup[lookup_key]].to_dict()
 
     def save(self, artifact_path: Path) -> None:
         artifact_path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(self, artifact_path)
 
     @classmethod
-    def load(cls, artifact_path: Path) -> "MovieRecommender":
+    def load(cls, artifact_path: Path) -> "DramaRecommender":
         return joblib.load(artifact_path)
+
+
+MovieRecommender = DramaRecommender
