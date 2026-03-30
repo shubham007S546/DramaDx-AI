@@ -86,6 +86,10 @@ def ensure_ui_state(catalog) -> None:
         )
     if "home_query" not in st.session_state:
         st.session_state["home_query"] = ""
+    if "use_tmdb" not in st.session_state:
+        st.session_state["use_tmdb"] = False
+    if "use_youtube" not in st.session_state:
+        st.session_state["use_youtube"] = False
 
 
 def set_search_context(title: str, country: str = "") -> None:
@@ -130,85 +134,51 @@ def inject_styles() -> None:
     st.markdown(
         """
         <style>
-        .stApp {
-            background:
-                radial-gradient(circle at top left, rgba(1, 180, 228, 0.18), transparent 22%),
-                linear-gradient(180deg, #f4f8fb 0%, #ffffff 45%, #f6fbff 100%);
-        }
         .block-container {
-            padding-top: 1.3rem;
-            padding-bottom: 2.5rem;
+            padding-top: 1rem;
+            padding-bottom: 2rem;
         }
         .hero-panel {
-            padding: 1.7rem 1.8rem;
-            border-radius: 28px;
-            background: linear-gradient(135deg, #081f34 0%, #0d253f 46%, #01b4e4 100%);
-            color: #ffffff;
-            box-shadow: 0 22px 44px rgba(13, 37, 63, 0.18);
+            padding: 1rem 0 0.5rem 0;
         }
         .hero-panel h1 {
-            margin: 0;
-            font-size: 2.55rem;
-            line-height: 1.05;
+            margin: 0 0 0.35rem 0;
+            font-size: 2.1rem;
         }
         .hero-panel p {
-            margin-top: 0.8rem;
-            margin-bottom: 0;
-            line-height: 1.65;
-            max-width: 780px;
+            margin: 0.35rem 0 0 0;
         }
         .chip-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 0.45rem;
-            margin-top: 0.95rem;
+            gap: 0.4rem;
+            margin-top: 0.7rem;
         }
         .chip {
             display: inline-flex;
             align-items: center;
-            padding: 0.35rem 0.72rem;
+            padding: 0.25rem 0.6rem;
             border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            background: rgba(255, 255, 255, 0.13);
+            border: 1px solid rgba(128, 128, 128, 0.35);
             font-size: 0.86rem;
         }
         .placeholder-card {
-            min-height: 360px;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            border-radius: 24px;
-            padding: 1.1rem;
-            background:
-                linear-gradient(180deg, rgba(7, 20, 33, 0.10), rgba(7, 20, 33, 0.85)),
-                linear-gradient(135deg, #0d253f 0%, #174566 56%, #01b4e4 100%);
-            color: #ffffff;
-            box-shadow: 0 18px 34px rgba(13, 37, 63, 0.18);
+            min-height: 180px;
+            border-radius: 16px;
+            padding: 1rem;
+            border: 1px dashed rgba(128, 128, 128, 0.45);
         }
         .placeholder-card .eyebrow {
             text-transform: uppercase;
             letter-spacing: 0.08em;
             font-size: 0.76rem;
-            opacity: 0.82;
+            opacity: 0.8;
         }
         .placeholder-card .title {
             margin-top: 0.4rem;
-            font-size: 1.6rem;
+            font-size: 1.35rem;
             line-height: 1.1;
             font-weight: 700;
-        }
-        .soft-note {
-            border: 1px solid rgba(13, 37, 63, 0.10);
-            border-radius: 18px;
-            padding: 1rem 1.05rem;
-            background: rgba(255, 255, 255, 0.84);
-            box-shadow: 0 14px 28px rgba(13, 37, 63, 0.06);
-        }
-        .tmdb-note {
-            border: 1px solid rgba(1, 180, 228, 0.24);
-            border-radius: 20px;
-            padding: 1rem 1.1rem;
-            background: rgba(1, 180, 228, 0.08);
         }
         </style>
         """,
@@ -297,22 +267,8 @@ def build_tmdb_settings() -> TMDBSettings:
     configured_language = get_runtime_value("TMDB_LANGUAGE", default=DEFAULT_TMDB_LANGUAGE)
     default_language = configured_language if configured_language in language_options else "en-US"
 
-    with st.sidebar.expander("Session-only TMDB credentials", expanded=False):
-        runtime_api_key = st.text_input(
-            "TMDB API Key",
-            type="password",
-            key="runtime_tmdb_api_key",
-            help="Optional session input if you do not want to edit .env.",
-        )
-        runtime_access_token = st.text_input(
-            "TMDB Bearer Token",
-            type="password",
-            key="runtime_tmdb_access_token",
-            help="Preferred option for live TV drama search and details.",
-        )
-
-    api_key = runtime_api_key.strip() or get_runtime_value("TMDB_API_KEY")
-    access_token = runtime_access_token.strip() or get_runtime_value("TMDB_BEARER_TOKEN", "TMDB_ACCESS_TOKEN")
+    api_key = get_runtime_value("TMDB_API_KEY").strip()
+    access_token = get_runtime_value("TMDB_BEARER_TOKEN", "TMDB_ACCESS_TOKEN").strip()
     language = st.sidebar.selectbox("TMDB Language", options=language_options, index=language_options.index(default_language))
     return TMDBSettings(api_key=api_key, access_token=access_token, language=language)
 
@@ -322,15 +278,7 @@ def build_youtube_settings() -> YouTubeSettings:
     configured_region = get_runtime_value("YOUTUBE_REGION_CODE", default=DEFAULT_YOUTUBE_REGION)
     default_region = configured_region if configured_region in region_options else "IN"
 
-    with st.sidebar.expander("Session-only YouTube key", expanded=False):
-        runtime_api_key = st.text_input(
-            "YouTube API Key",
-            type="password",
-            key="runtime_youtube_api_key",
-            help="Optional session input for official video lookups.",
-        )
-
-    api_key = runtime_api_key.strip() or get_runtime_value("YOUTUBE_API_KEY")
+    api_key = get_runtime_value("YOUTUBE_API_KEY").strip()
     region_code = st.sidebar.selectbox("YouTube Region", options=region_options, index=region_options.index(default_region))
     return YouTubeSettings(api_key=api_key, region_code=region_code)
 
@@ -349,7 +297,7 @@ def render_sidebar_summary(tmdb_settings: TMDBSettings, youtube_settings: YouTub
         st.sidebar.info("YouTube key is optional. Without it, the app will still show direct search links.")
 
     st.sidebar.write(f"Watchlist: {len(st.session_state.get('watchlist', []))} saved")
-    st.sidebar.caption("Keys stay private. Use local .env, Streamlit secrets, or the session-only inputs above.")
+    st.sidebar.caption("Keys stay private. Use local .env, Streamlit secrets, or deployment environment variables.")
 
 
 def create_local_profile(record: dict) -> dict:
@@ -379,6 +327,12 @@ def create_local_profile(record: dict) -> dict:
 
 
 def render_placeholder_poster(title: str, country: str, year: int) -> None:
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.caption(f"{country or 'Drama'} | {year}")
+        st.caption("Poster not available in starter mode.")
+    return
+
     st.markdown(
         f"""
         <div class="placeholder-card">
@@ -428,6 +382,22 @@ def render_match_summary(local_matches: list[dict], live_matches: list[dict]) ->
 
 
 def render_profile_header(profile: dict) -> None:
+    st.caption("Drama discovery workspace")
+    st.title(APP_TITLE)
+    st.write(APP_SUBTITLE)
+    chip_text = " | ".join(
+        str(item)
+        for item in (
+            profile.get("source", "Profile loaded"),
+            profile.get("country", "Country unknown"),
+            profile.get("status", "Series"),
+            profile.get("year", "Year unknown"),
+        )
+        if item
+    )
+    st.caption(chip_text)
+    return
+
     st.markdown(
         f"""
         <div class="hero-panel">
@@ -532,7 +502,7 @@ def render_profile(profile: dict, tmdb_settings: TMDBSettings, youtube_settings:
             st.rerun()
 
         if not tmdb_settings.enabled and not profile.get("poster_url"):
-            st.warning("Real posters, richer cast, and social handles need TMDB credentials in .env or the session-only sidebar inputs.")
+            st.warning("Real posters, richer cast, and social handles need TMDB credentials in .env, Streamlit secrets, or deployment environment variables.")
 
 
 def render_cast_explorer(profile: dict, tmdb_settings: TMDBSettings) -> None:
@@ -588,7 +558,7 @@ def render_cast_explorer(profile: dict, tmdb_settings: TMDBSettings) -> None:
                 social_columns = st.columns(min(3, len(live_person["social_links"])))
                 for index, (label, url) in enumerate(live_person["social_links"].items()):
                     with social_columns[index % len(social_columns)]:
-                        st.link_button(label, url, key=f"person_social_{selected_member.get('name')}_{label}", use_container_width=True)
+                        st.link_button(label, url, use_container_width=True)
         else:
             st.write(
                 f"{selected_member.get('name', 'This actor')} is part of the main cast for {profile['title']}. "
@@ -659,18 +629,8 @@ def render_recommendations(
 
                 tmdb_link = recommendation.get("tmdb_url") or build_tmdb_search_url(recommendation.get("title", ""))
                 youtube_link = build_youtube_search_url(f"{recommendation.get('title', '')} official drama")
-                st.link_button(
-                    "Open TMDB",
-                    tmdb_link,
-                    key=f"tmdb_link_{recommendation.get('title', '')}_{index}",
-                    use_container_width=True,
-                )
-                st.link_button(
-                    "Search YouTube",
-                    youtube_link,
-                    key=f"yt_link_{recommendation.get('title', '')}_{index}",
-                    use_container_width=True,
-                )
+                st.link_button("Open TMDB", tmdb_link, use_container_width=True)
+                st.link_button("Search YouTube", youtube_link, use_container_width=True)
 
 
 def render_home_tab(catalog, recommender: DramaRecommender) -> None:
@@ -755,12 +715,7 @@ def render_watchlist_tab() -> None:
                 set_search_context(item.get("search_title", item.get("title", "")), item.get("country", ""))
                 st.rerun()
             if item.get("tmdb_url"):
-                action_two.link_button(
-                    "Open TMDB",
-                    item["tmdb_url"],
-                    key=f"watchlist_tmdb_{index}",
-                    use_container_width=True,
-                )
+                action_two.link_button("Open TMDB", item["tmdb_url"], use_container_width=True)
             if action_three.button("Remove", key=f"watchlist_remove_{index}", use_container_width=True):
                 st.session_state["watchlist"].pop(index)
                 st.rerun()
@@ -911,21 +866,13 @@ def render_setup_tab(tmdb_settings: TMDBSettings, youtube_settings: YouTubeSetti
     left_column, right_column = st.columns([1.1, 1])
 
     with left_column:
-        st.markdown(
-            f"""
-            <div class="tmdb-note">
-              <p><strong>TMDB attribution notice</strong></p>
-              <p>{TMDB_NOTICE}</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.info(TMDB_NOTICE)
         st.image(TMDB_LOGO_URL, width=120)
 
         with st.container(border=True):
             st.markdown("#### Why posters or live links may be missing")
             st.write("The starter catalog ships with text data only. Real posters, richer cast details, TMDB links, and actor biographies need a TMDB token.")
-            st.write("You can keep keys private by using local .env, Streamlit secrets, or the session-only sidebar inputs.")
+            st.write("You can keep keys private by using local .env, Streamlit secrets, or deployment environment variables.")
 
         with st.container(border=True):
             st.markdown("#### Recommended next dataset step")
