@@ -29,13 +29,14 @@ from src.tmdb import (
     TMDBSettings,
     build_tmdb_search_url,
     fetch_person_profile,
+    fetch_tv_profile_by_id,
     fetch_tv_profile,
     search_tv_titles,
 )
 from src.youtube import YouTubeSettings, build_youtube_search_url, fetch_video_result
 
 
-st.set_page_config(page_title=APP_TITLE, page_icon="🎭", layout="wide")
+st.set_page_config(page_title=APP_TITLE, page_icon=":clapper:", layout="wide")
 
 COUNTRY_CODE_MAP = {
     "India": "IN",
@@ -93,9 +94,28 @@ def ensure_ui_state(catalog) -> None:
 
 
 def set_search_context(title: str, country: str = "") -> None:
+    st.session_state["_pending_search_context"] = {
+        "title": str(title).strip(),
+        "country": str(country).strip(),
+    }
+
+
+def apply_pending_search_context() -> None:
+    pending = st.session_state.pop("_pending_search_context", None)
+    if not pending:
+        return
+
+    title = str(pending.get("title", "")).strip()
+    country = str(pending.get("country", "")).strip()
+
     st.session_state["search_query"] = title
     if country in SUPPORTED_COUNTRIES:
         st.session_state["search_countries"] = [country]
+    elif "search_countries" not in st.session_state:
+        st.session_state["search_countries"] = list(SUPPORTED_COUNTRIES)
+
+    if title:
+        st.session_state["search_fallback_title"] = title
 
 
 def add_watchlist_entry(entry: dict) -> None:
@@ -138,47 +158,29 @@ def inject_styles() -> None:
             padding-top: 1rem;
             padding-bottom: 2rem;
         }
-        .hero-panel {
-            padding: 1rem 0 0.5rem 0;
-        }
-        .hero-panel h1 {
-            margin: 0 0 0.35rem 0;
-            font-size: 2.1rem;
-        }
-        .hero-panel p {
-            margin: 0.35rem 0 0 0;
-        }
-        .chip-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.4rem;
-            margin-top: 0.7rem;
-        }
-        .chip {
-            display: inline-flex;
-            align-items: center;
-            padding: 0.25rem 0.6rem;
-            border-radius: 999px;
-            border: 1px solid rgba(128, 128, 128, 0.35);
-            font-size: 0.86rem;
-        }
+
         .placeholder-card {
-            min-height: 180px;
-            border-radius: 16px;
-            padding: 1rem;
+            min-height: 140px;
+            border-radius: 12px;
+            padding: 0.9rem;
             border: 1px dashed rgba(128, 128, 128, 0.45);
         }
+
         .placeholder-card .eyebrow {
             text-transform: uppercase;
             letter-spacing: 0.08em;
             font-size: 0.76rem;
-            opacity: 0.8;
         }
+
         .placeholder-card .title {
             margin-top: 0.4rem;
-            font-size: 1.35rem;
+            font-size: 1.2rem;
             line-height: 1.1;
             font-weight: 700;
+        }
+
+        .stButton > button, .stLinkButton > button {
+            border-radius: 10px !important;
         }
         </style>
         """,
@@ -227,6 +229,12 @@ def get_live_profile_cached(
         preferred_country_code=preferred_country_code,
         year_range=(start_year, end_year),
     )
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def get_live_profile_by_id_cached(tv_id: int, api_key: str, access_token: str, language: str):
+    settings = TMDBSettings(api_key=api_key, access_token=access_token, language=language)
+    return fetch_tv_profile_by_id(tv_id=tv_id, settings=settings)
 
 
 @st.cache_data(show_spinner=False, ttl=3600)
@@ -300,6 +308,16 @@ def render_sidebar_summary(tmdb_settings: TMDBSettings, youtube_settings: YouTub
     st.sidebar.caption("Keys stay private. Use local .env, Streamlit secrets, or deployment environment variables.")
 
 
+def render_brand_bar(tmdb_settings: TMDBSettings, youtube_settings: YouTubeSettings) -> None:
+    st.title(APP_TITLE)
+    st.write(APP_SUBTITLE)
+
+    metric_one, metric_two, metric_three = st.columns(3)
+    metric_one.metric("TMDB", "Ready" if tmdb_settings.enabled else "Optional")
+    metric_two.metric("YouTube", "Ready" if youtube_settings.enabled else "Optional")
+    metric_three.metric("Catalog", "Loaded")
+
+
 def create_local_profile(record: dict) -> dict:
     cast_entries = [{"name": name, "character": "", "person_id": None, "profile_url": ""} for name in split_tags(record.get("cast", ""))]
     return {
@@ -317,8 +335,9 @@ def create_local_profile(record: dict) -> dict:
         "overview": record.get("overview", ""),
         "aliases": record.get("aliases", ""),
         "watch_hint": record.get("watch_hint", ""),
-        "poster_url": record.get("poster_url", ""),
+        "poster_url": "",
         "backdrop_url": "",
+        "tmdb_id": record.get("tmdb_id", ""),
         "tmdb_url": build_tmdb_search_url(record["title"]),
         "social_links": {},
         "cast": cast_entries,
@@ -326,18 +345,44 @@ def create_local_profile(record: dict) -> dict:
     }
 
 
-def render_placeholder_poster(title: str, country: str, year: int) -> None:
-    with st.container(border=True):
-        st.markdown(f"**{title}**")
-        st.caption(f"{country or 'Drama'} | {year}")
-        st.caption("Poster not available in starter mode.")
-    return
+def merge_local_metadata(profile: dict, record: dict | None) -> dict:
+    if not record:
+        return profile
 
+    merged = dict(profile)
+    local_themes = split_tags(record.get("themes", ""))
+    local_aliases = split_tags(record.get("aliases", ""))
+
+    if local_themes:
+        merged["themes"] = local_themes
+    if local_aliases:
+        existing_aliases = split_tags(merged.get("aliases", ""))
+        combined_aliases: list[str] = []
+        for alias in existing_aliases + local_aliases:
+            if alias and alias not in combined_aliases:
+                combined_aliases.append(alias)
+        merged["aliases"] = ", ".join(combined_aliases)
+
+    if record.get("watch_hint") and not merged.get("watch_hint"):
+        merged["watch_hint"] = record["watch_hint"]
+    if record.get("country") and not merged.get("country"):
+        merged["country"] = record["country"]
+    if record.get("language") and not merged.get("language"):
+        merged["language"] = record["language"]
+    if record.get("network") and not merged.get("network"):
+        merged["network"] = record["network"]
+    if record.get("tmdb_id") and not merged.get("tmdb_id"):
+        merged["tmdb_id"] = record["tmdb_id"]
+    return merged
+
+
+def render_placeholder_poster(title: str, country: str, year: int) -> None:
     st.markdown(
         f"""
         <div class="placeholder-card">
-          <div class="eyebrow">{country or "Drama"} • {year}</div>
+          <div class="eyebrow">{country or "Drama"} | {year}</div>
           <div class="title">{title}</div>
+          <div style="margin-top: 0.7rem; font-size: 0.85rem;">Poster not available in starter mode.</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -368,52 +413,16 @@ def render_match_summary(local_matches: list[dict], live_matches: list[dict]) ->
                     st.rerun()
     return
 
-    if local_matches:
-        st.markdown("#### Starter catalog matches")
-        for match in local_matches[:4]:
-            st.caption(f"{match['title']} • {match['country']} • {match['year']} • match {match.get('match_score', 0):.2f}")
-
-    if live_matches:
-        st.markdown("#### TMDB live matches")
-        for match in live_matches[:4]:
-            country = ", ".join(match.get("country_names", [])) or "Unknown"
-            year = match.get("year") or "-"
-            st.caption(f"{match['title']} • {country} • {year}")
-
 
 def render_profile_header(profile: dict) -> None:
     st.caption("Drama discovery workspace")
-    st.title(APP_TITLE)
-    st.write(APP_SUBTITLE)
-    chip_text = " | ".join(
-        str(item)
-        for item in (
-            profile.get("source", "Profile loaded"),
-            profile.get("country", "Country unknown"),
-            profile.get("status", "Series"),
-            profile.get("year", "Year unknown"),
-        )
-        if item
-    )
-    st.caption(chip_text)
-    return
-
-    st.markdown(
-        f"""
-        <div class="hero-panel">
-          <p style="margin: 0; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.78;">Drama discovery workspace</p>
-          <h1>{APP_TITLE}</h1>
-          <p>{APP_SUBTITLE}</p>
-          <div class="chip-row">
-            <span class="chip">{profile.get('source', 'Profile loaded')}</span>
-            <span class="chip">{profile.get('country', 'Country unknown')}</span>
-            <span class="chip">{profile.get('status', 'Series')}</span>
-            <span class="chip">{profile.get('year', 'Year unknown')}</span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    header_parts = [
+        str(profile.get("source", "Profile loaded")),
+        str(profile.get("country", "Country unknown")),
+        str(profile.get("status", "Series")),
+        str(profile.get("year", "Year unknown")),
+    ]
+    st.caption(" | ".join(part for part in header_parts if part))
 
 
 def render_profile_links(profile: dict, youtube_settings: YouTubeSettings) -> None:
@@ -442,9 +451,10 @@ def render_profile_links(profile: dict, youtube_settings: YouTubeSettings) -> No
             link_specs.insert(0, ("Best YouTube Match", video["watch_url"]))
 
     rendered = set()
-    columns = st.columns(min(4, max(1, len(link_specs[:4]))))
-    for index, (label, url) in enumerate(link_specs[:4]):
-        if not url or (label, url) in rendered:
+    unique_links = [(label, url) for label, url in link_specs if url]
+    columns = st.columns(min(4, max(1, len(unique_links))))
+    for index, (label, url) in enumerate(unique_links):
+        if (label, url) in rendered:
             continue
         rendered.add((label, url))
         with columns[index % len(columns)]:
@@ -453,7 +463,7 @@ def render_profile_links(profile: dict, youtube_settings: YouTubeSettings) -> No
     if video and video.get("watch_url"):
         with st.expander("Preview YouTube result", expanded=False):
             st.video(video["watch_url"])
-            st.caption(f"{video.get('title', 'Video')} • {video.get('channel_title', 'YouTube')}")
+            st.caption(f"{video.get('title', 'Video')} | {video.get('channel_title', 'YouTube')}")
 
 
 def render_profile(profile: dict, tmdb_settings: TMDBSettings, youtube_settings: YouTubeSettings) -> None:
@@ -473,7 +483,7 @@ def render_profile(profile: dict, tmdb_settings: TMDBSettings, youtube_settings:
             profile.get("status", ""),
             profile.get("network", ""),
         ]
-        st.caption(" • ".join([item for item in meta_items if item]))
+        st.caption(" | ".join([item for item in meta_items if item]))
         st.write(profile.get("overview") or "No summary is available yet for this title.")
 
         if profile.get("themes"):
@@ -527,7 +537,7 @@ def render_cast_explorer(profile: dict, tmdb_settings: TMDBSettings) -> None:
     for member in cast[:12]:
         label = member.get("name", "Cast member")
         if member.get("character"):
-            label = f"{label} — {member['character']}"
+            label = f"{label} - {member['character']}"
         labels.append(label)
         member_lookup[label] = member
 
@@ -553,7 +563,7 @@ def render_cast_explorer(profile: dict, tmdb_settings: TMDBSettings) -> None:
             extras = [live_person.get("known_for", ""), live_person.get("place_of_birth", "")]
             extras = [extra for extra in extras if extra]
             if extras:
-                st.caption(" • ".join(extras))
+                st.caption(" | ".join(extras))
             if live_person.get("social_links"):
                 social_columns = st.columns(min(3, len(live_person["social_links"])))
                 for index, (label, url) in enumerate(live_person["social_links"].items()):
@@ -608,7 +618,7 @@ def render_recommendations(
                     caption_parts.append(str(recommendation["year"]))
                 if recommendation.get("similarity") is not None:
                     caption_parts.append(f"match {recommendation['similarity']:.0%}")
-                st.caption(" • ".join(caption_parts))
+                st.caption(" | ".join(caption_parts))
                 st.write(trim_text(recommendation.get("overview", "No summary available.")))
 
                 action_one, action_two = st.columns(2)
@@ -730,7 +740,7 @@ def render_search_tab(
     render_profile_header(
         {
             "source": "Starter catalog and TMDB live search",
-            "country": "India • Pakistan • Turkey",
+            "country": "India | Pakistan | Turkey",
             "status": MODEL_NAME,
             "year": "2020-2026",
         }
@@ -738,22 +748,18 @@ def render_search_tab(
 
     min_year = int(catalog["year"].min())
     max_year = max(2026, int(catalog["year"].max()))
-    if "search_year_range" not in st.session_state:
-        st.session_state["search_year_range"] = (max(2020, min_year), max_year)
 
     filter_column, query_column = st.columns([0.95, 1.25])
     with filter_column:
         selected_countries = st.multiselect(
             "Countries",
             options=list(SUPPORTED_COUNTRIES),
-            default=list(SUPPORTED_COUNTRIES),
             key="search_countries",
         )
         year_range = st.slider(
             "Year range",
             min_value=min_year,
             max_value=max_year,
-            value=(max(2020, min_year), max_year),
             key="search_year_range",
         )
 
@@ -777,6 +783,8 @@ def render_search_tab(
     local_matches = recommender.search(query, countries=selected_countries, year_range=year_range, limit=5) if query else []
     live_matches = []
     live_profile = None
+    fallback_record = recommender.get_drama(local_matches[0]["title"] if local_matches else fallback_title)
+
     if query and tmdb_settings.enabled:
         live_matches = get_live_search_results_cached(
             query=query,
@@ -797,15 +805,26 @@ def render_search_tab(
             end_year=year_range[1],
         )
 
+    if not live_profile and tmdb_settings.enabled:
+        fallback_tmdb_id = int(fallback_record.get("tmdb_id", 0) or 0)
+        if fallback_tmdb_id:
+            live_profile = get_live_profile_by_id_cached(
+                tv_id=fallback_tmdb_id,
+                api_key=tmdb_settings.api_key,
+                access_token=tmdb_settings.access_token,
+                language=tmdb_settings.language,
+            )
+
     if query:
         render_match_summary(local_matches, live_matches)
 
-    if query and live_profile:
-        profile = live_profile
-        local_fallback = local_matches[0]["title"] if local_matches else fallback_title
+    local_fallback = fallback_record["title"]
+    if live_profile:
+        profile = merge_local_metadata(live_profile, fallback_record)
+        if query and tmdb_settings.enabled and not live_matches:
+            st.info("TMDB search missed this spelling, so the app used the closest starter-catalog match and loaded its live details.")
     else:
-        profile = create_local_profile(recommender.get_drama(local_matches[0]["title"] if local_matches else fallback_title))
-        local_fallback = profile["title"]
+        profile = create_local_profile(fallback_record)
         if query and not tmdb_settings.enabled:
             st.info("TMDB is not configured yet, so the app is showing the closest starter catalog drama instead of a live search result.")
         elif query and tmdb_settings.enabled and not live_profile:
@@ -899,10 +918,14 @@ def main() -> None:
     catalog = get_catalog(str(DATA_PATH))
     recommender = get_recommender(str(DATA_PATH), str(ARTIFACT_PATH))
     ensure_ui_state(catalog)
+    apply_pending_search_context()
 
     tmdb_settings = build_tmdb_settings()
     youtube_settings = build_youtube_settings()
     render_sidebar_summary(tmdb_settings, youtube_settings)
+
+    render_brand_bar(tmdb_settings, youtube_settings)
+    st.markdown("<div style=\"height: 0.8rem;\"></div>", unsafe_allow_html=True)
 
     home_tab, search_tab, watchlist_tab, catalog_tab, setup_tab = st.tabs(["Home", "Search", "Watchlist", "Catalog", "Setup"])
     with home_tab:

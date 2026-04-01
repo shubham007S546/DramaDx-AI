@@ -8,16 +8,18 @@ import pandas as pd
 COLUMN_ALIASES = {
     "movie_title": "title",
     "name": "title",
+    "series_title": "title",
+    "show_title": "title",
     "release_year": "year",
     "genre": "genres",
     "plot": "overview",
     "description": "overview",
     "summary": "overview",
-    "series_title": "title",
-    "show_title": "title",
+    "short_summary": "overview",
+    "main_themes": "themes",
 }
 
-REQUIRED_COLUMNS = (
+FINAL_COLUMNS = (
     "title",
     "year",
     "country",
@@ -30,8 +32,10 @@ REQUIRED_COLUMNS = (
     "cast",
     "aliases",
     "overview",
+    "watch_hint",
+    "poster_url",
 )
-OPTIONAL_COLUMNS = ("watch_hint", "poster_url")
+
 TEXT_COLUMNS = (
     "title",
     "country",
@@ -50,7 +54,7 @@ TEXT_COLUMNS = (
 
 
 def _normalize_columns(dataframe: pd.DataFrame) -> pd.DataFrame:
-    return dataframe.rename(columns={col: COLUMN_ALIASES.get(col, col) for col in dataframe.columns})
+    return dataframe.rename(columns={column: COLUMN_ALIASES.get(column, column) for column in dataframe.columns})
 
 
 def _clean_text(value: object) -> str:
@@ -59,23 +63,127 @@ def _clean_text(value: object) -> str:
     return " ".join(str(value).replace("|", ", ").split())
 
 
+def _clean_series(series: pd.Series | None) -> pd.Series | None:
+    if series is None:
+        return None
+    return series.map(_clean_text)
+
+
+def _first_non_empty(dataframe: pd.DataFrame, *columns: str) -> pd.Series:
+    result = pd.Series([""] * len(dataframe), index=dataframe.index, dtype="object")
+    for column in columns:
+        if column not in dataframe.columns:
+            continue
+        candidate = _clean_series(dataframe[column]).fillna("")
+        result = result.where(result != "", candidate)
+    return result.fillna("")
+
+
+def _derive_years(dataframe: pd.DataFrame) -> pd.Series:
+    if "year" in dataframe.columns:
+        years = pd.to_numeric(dataframe["year"], errors="coerce")
+    else:
+        years = pd.Series([pd.NA] * len(dataframe), index=dataframe.index, dtype="Float64")
+
+    if "first_air_date" in dataframe.columns:
+        derived = pd.to_datetime(dataframe["first_air_date"], errors="coerce").dt.year
+        years = years.fillna(derived)
+
+    return years.fillna(0).astype(int)
+
+
+def _build_aliases(dataframe: pd.DataFrame) -> pd.Series:
+    explicit_aliases = _first_non_empty(dataframe, "aliases")
+    original_titles = _first_non_empty(dataframe, "original_title", "original_name")
+    titles = _first_non_empty(dataframe, "title")
+
+    aliases: list[str] = []
+    combined = []
+    for title, original_title, alias_text in zip(titles, original_titles, explicit_aliases):
+        aliases.clear()
+        for candidate in (alias_text, original_title):
+            cleaned = _clean_text(candidate)
+            if cleaned and cleaned.lower() != title.lower() and cleaned.lower() not in {item.lower() for item in aliases}:
+                aliases.append(cleaned)
+        combined.append(", ".join(aliases))
+
+    return pd.Series(combined, index=dataframe.index, dtype="object")
+
+
+def _build_keywords(dataframe: pd.DataFrame) -> pd.Series:
+    explicit_keywords = _first_non_empty(dataframe, "keywords")
+    themes = _first_non_empty(dataframe, "themes")
+    genres = _first_non_empty(dataframe, "genres")
+    networks = _first_non_empty(dataframe, "network")
+
+    keywords: list[str] = []
+    combined = []
+    for explicit, theme_text, genre_text, network in zip(explicit_keywords, themes, genres, networks):
+        keywords.clear()
+        for chunk in (explicit, theme_text, genre_text, network):
+            for item in [part.strip() for part in str(chunk).split(",") if part and part.strip()]:
+                if item.lower() not in {value.lower() for value in keywords}:
+                    keywords.append(item)
+        combined.append(", ".join(keywords))
+
+    return pd.Series(combined, index=dataframe.index, dtype="object")
+
+
+def _build_watch_hints(dataframe: pd.DataFrame) -> pd.Series:
+    explicit_hints = _first_non_empty(dataframe, "watch_hint")
+    networks = _first_non_empty(dataframe, "network")
+    statuses = _first_non_empty(dataframe, "status")
+
+    hints = []
+    for hint, network, status in zip(explicit_hints, networks, statuses):
+        if hint:
+            hints.append(hint)
+            continue
+
+        pieces = []
+        if network:
+            pieces.append(f"Originally aired on {network}")
+        if status:
+            pieces.append(f"Status: {status}")
+        hints.append(". ".join(pieces))
+
+    return pd.Series(hints, index=dataframe.index, dtype="object")
+
+
 def load_catalog(csv_path: Path) -> pd.DataFrame:
     dataframe = pd.read_csv(csv_path)
     dataframe = _normalize_columns(dataframe)
 
-    missing = [column for column in REQUIRED_COLUMNS if column not in dataframe.columns]
-    if missing:
-        missing_text = ", ".join(missing)
-        raise ValueError(f"Dataset is missing required columns: {missing_text}")
+    if "title" not in dataframe.columns:
+        raise ValueError("Dataset is missing required column: title")
 
-    for column in OPTIONAL_COLUMNS:
+    dataframe["year"] = _derive_years(dataframe)
+    dataframe["country"] = _first_non_empty(dataframe, "country", "origin_country")
+    dataframe["language"] = _first_non_empty(dataframe, "language")
+    dataframe["status"] = _first_non_empty(dataframe, "status")
+    dataframe["genres"] = _first_non_empty(dataframe, "genres")
+    dataframe["themes"] = _first_non_empty(dataframe, "themes", "genres")
+    dataframe["network"] = _first_non_empty(dataframe, "network")
+    dataframe["overview"] = _first_non_empty(dataframe, "overview")
+    dataframe["cast"] = _first_non_empty(dataframe, "cast")
+    dataframe["aliases"] = _build_aliases(dataframe)
+    dataframe["keywords"] = _build_keywords(dataframe)
+    dataframe["watch_hint"] = _build_watch_hints(dataframe)
+    dataframe["poster_url"] = _first_non_empty(dataframe, "poster_url")
+
+    # The bundled starter CSV is intentionally text-first. A few legacy poster
+    # URLs in that seed file are placeholders that 404, so we prefer the app's
+    # built-in poster cards until live TMDB enrichment is available.
+    if csv_path.name == "dramas_seed.csv":
+        dataframe["poster_url"] = ""
+
+    for column in FINAL_COLUMNS:
         if column not in dataframe.columns:
             dataframe[column] = ""
 
     for column in TEXT_COLUMNS:
         dataframe[column] = dataframe[column].map(_clean_text)
 
-    dataframe["year"] = pd.to_numeric(dataframe["year"], errors="coerce").fillna(0).astype(int)
     dataframe = dataframe.drop_duplicates(subset=["title", "year", "country"]).reset_index(drop=True)
 
     dataframe["feature_text"] = dataframe.apply(
@@ -98,6 +206,7 @@ def load_catalog(csv_path: Path) -> pd.DataFrame:
         ),
         axis=1,
     )
+
     return dataframe
 
 
