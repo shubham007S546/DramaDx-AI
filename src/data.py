@@ -20,6 +20,7 @@ COLUMN_ALIASES = {
 }
 
 FINAL_COLUMNS = (
+    "content_type",
     "title",
     "year",
     "country",
@@ -158,12 +159,18 @@ def load_catalog(csv_path: Path) -> pd.DataFrame:
         raise ValueError("Dataset is missing required column: title")
 
     dataframe["year"] = _derive_years(dataframe)
+    if "content_type" not in dataframe.columns:
+        if "release_date" in dataframe.columns and "first_air_date" not in dataframe.columns:
+            dataframe["content_type"] = "Movie"
+        else:
+            dataframe["content_type"] = "Serial"
     dataframe["country"] = _first_non_empty(dataframe, "country", "origin_country")
     dataframe["language"] = _first_non_empty(dataframe, "language")
     dataframe["status"] = _first_non_empty(dataframe, "status")
+    dataframe["status"] = dataframe["status"].where(dataframe["status"] != "", dataframe["content_type"].map(lambda value: "Released" if value == "Movie" else "Series"))
     dataframe["genres"] = _first_non_empty(dataframe, "genres")
     dataframe["themes"] = _first_non_empty(dataframe, "themes", "genres")
-    dataframe["network"] = _first_non_empty(dataframe, "network")
+    dataframe["network"] = _first_non_empty(dataframe, "network", "production_company")
     dataframe["overview"] = _first_non_empty(dataframe, "overview")
     dataframe["cast"] = _first_non_empty(dataframe, "cast")
     dataframe["aliases"] = _build_aliases(dataframe)
@@ -208,6 +215,20 @@ def load_catalog(csv_path: Path) -> pd.DataFrame:
     )
 
     return dataframe
+
+
+def load_combined_catalog(*csv_paths: Path) -> pd.DataFrame:
+    datasets = []
+    for csv_path in csv_paths:
+        if csv_path and Path(csv_path).exists():
+            datasets.append(load_catalog(Path(csv_path)))
+
+    if not datasets:
+        raise FileNotFoundError("No catalog files were found for the combined dataset.")
+
+    combined = pd.concat(datasets, ignore_index=True)
+    combined = combined.drop_duplicates(subset=["title", "year", "country", "content_type"]).reset_index(drop=True)
+    return combined
 
 
 def load_movies(csv_path: Path) -> pd.DataFrame:
