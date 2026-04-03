@@ -26,6 +26,10 @@ def main() -> None:
 
     dataset_path = Path(args.dataset)
     artifact_path = Path(args.artifact)
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
     dramas = load_catalog(dataset_path)
     recommender = DramaRecommender().fit(dramas)

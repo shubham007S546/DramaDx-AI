@@ -86,6 +86,10 @@ def _derive_years(dataframe: pd.DataFrame) -> pd.Series:
     else:
         years = pd.Series([pd.NA] * len(dataframe), index=dataframe.index, dtype="Float64")
 
+    if "release_date" in dataframe.columns:
+        derived_release = pd.to_datetime(dataframe["release_date"], errors="coerce").dt.year
+        years = years.fillna(derived_release)
+
     if "first_air_date" in dataframe.columns:
         derived = pd.to_datetime(dataframe["first_air_date"], errors="coerce").dt.year
         years = years.fillna(derived)
@@ -177,12 +181,6 @@ def load_catalog(csv_path: Path) -> pd.DataFrame:
     dataframe["keywords"] = _build_keywords(dataframe)
     dataframe["watch_hint"] = _build_watch_hints(dataframe)
     dataframe["poster_url"] = _first_non_empty(dataframe, "poster_url")
-
-    # The bundled starter CSV is intentionally text-first. A few legacy poster
-    # URLs in that seed file are placeholders that 404, so we prefer the app's
-    # built-in poster cards until live TMDB enrichment is available.
-    if csv_path.name == "dramas_seed.csv":
-        dataframe["poster_url"] = ""
 
     for column in FINAL_COLUMNS:
         if column not in dataframe.columns:
