@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from difflib import SequenceMatcher
+from posixpath import sep
 import unicodedata
 
 import pandas as pd
@@ -637,11 +638,10 @@ def render_profile(profile: dict, youtube_key: str, youtube_region: str) -> None
             f"⏱ {profile['runtime']} min" if profile.get("runtime") and is_movie else "",
             profile.get("network", "") if not is_movie else "",
         ] if p]
-        st.markdown(
-            sep = "<span class='sep'>•</span>"
-            html = f'<div class="drama-meta">{sep.join(meta_parts)}</div>',
-            unsafe_allow_html=True,
-        )
+        sep = "<span class='sep'>•</span>"
+        meta_html = f'<div class="drama-meta">{sep.join(meta_parts)}</div>'
+
+        st.markdown(meta_html, unsafe_allow_html=True)
 
         overview = profile.get("overview") or "No summary available."
         st.markdown(f'<div class="overview">{overview}</div>', unsafe_allow_html=True)
