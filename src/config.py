@@ -7,15 +7,17 @@ from dotenv import load_dotenv
 ROOT_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(ROOT_DIR / ".env")
 
-DATA_PATH = ROOT_DIR / "data" / "dramas_seed.csv"
+DATA_DIR = ROOT_DIR / "data"
+DRAMAS_DATA_PATH = DATA_DIR / "dramas_seed.csv"
+MOVIES_DATA_PATH = DATA_DIR / "movies_seed.csv"
+DATA_PATH = DRAMAS_DATA_PATH
 ARTIFACT_PATH = ROOT_DIR / "artifacts" / "drama_recommender.joblib"
 
 APP_TITLE = "DramaDx AI"
 APP_SUBTITLE = (
-    "Search Indian, Pakistani, and Turkish dramas with a starter catalog now, "
-    "then unlock live posters, cast, links, and actor bios with TMDB."
+    "Type any movie or serial title and get an instant best match plus similar recommendations."
 )
-MODEL_NAME = "Drama similarity engine"
+MODEL_NAME = "Simple title recommender"
 
 TMDB_NOTICE = "This product uses the TMDB API but is not endorsed or certified by TMDB."
 TMDB_SITE_URL = "https://www.themoviedb.org/"

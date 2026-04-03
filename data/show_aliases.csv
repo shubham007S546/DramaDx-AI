@@ -1,0 +1,68 @@
+show_id,alias_text,alias_type,region
+PK001,meri humsafar,urdu-roman,pk
+PK001,mere humsafar,urdu-roman,pk
+PK002,tere bin,urdu-roman,pk
+PK002,tere baghair,urdu-roman,pk
+PK003,meri shehzadi,urdu-roman,pk
+PK003,my princess,english,pk
+PK004,sinf e ahan,urdu-roman,pk
+PK004,sinf-e-ahan,urdu-roman,pk
+PK004,women in uniform,english,pk
+PK005,parizaad,urdu-roman,pk
+PK006,kabli pulao,urdu-roman,pk
+PK006,kabuli pulao,urdu-roman,pk
+PK009,meri zindagi ha tu,urdu-roman,pk
+PK009,meri zindagi hai tu,urdu-roman,pk
+PK009,meri zindagi he tu,urdu-roman,pk
+PK009,my life is you,english,pk
+PK013,hum kahan ke sachay thay,urdu-roman,pk
+PK013,hum kahan ke sachhe the,urdu-roman,pk
+PK014,ishq murshid,urdu-roman,pk
+PK015,raqs e bismil,urdu-roman,pk
+PK015,raks e bismil,urdu-roman,pk
+PK016,dobara,urdu-roman,pk
+PK017,qalandar,urdu-roman,pk
+PK018,kuch ankahi,urdu-roman,pk
+PK019,aakhir kab tak,urdu-roman,pk
+PK020,mujhe pyaar hua tha,urdu-roman,pk
+PK023,dunk,urdu-roman,pk
+TR001,dirilis ertugrul,turkish-roman,tr
+TR001,ertugrul,turkish-roman,tr
+TR001,resurrection ertugrul,english,tr
+TR002,kurulus osman,turkish-roman,tr
+TR002,establishment osman,english,tr
+TR002,osman,turkish-roman,tr
+TR003,barbaroslar,turkish-roman,tr
+TR003,barbaros,turkish-roman,tr
+TR004,alparslan,turkish-roman,tr
+TR004,great seljuk,english,tr
+TR005,sen cal kapimi,turkish-roman,tr
+TR005,love is in the air,english,tr
+TR005,you knock on my door,english,tr
+TR006,camdaki kiz,turkish-roman,tr
+TR006,girl in the glass,english,tr
+TR010,ezel,turkish-roman,tr
+TR013,yasak elma,turkish-roman,tr
+TR013,forbidden apple,english,tr
+TR020,yali capsisi,turkish-roman,tr
+TR020,yali capkini,turkish-roman,tr
+TR020,golden cage,english,tr
+TR021,kizilcik serbeti,turkish-roman,tr
+TR021,strawberry sherbet,english,tr
+TR023,teskilat,turkish-roman,tr
+TR023,the organization,english,tr
+IN001,anupama,hindi-roman,in
+IN001,anupamaa,hindi-roman,in
+IN004,ghum hai kisikey pyaar mein,hindi-roman,in
+IN004,ghkpm,abbreviation,in
+IN005,imlie,hindi-roman,in
+IN006,taarak mehta,hindi-roman,in
+IN006,tmkoc,abbreviation,in
+MOV_PK002,maula jatt,punjabi-roman,pk
+MOV_PK002,legend of maula jatt,english,pk
+MOV_TR001,ayla daughter of war,english,tr
+MOV_TR004,fetih,turkish-roman,tr
+MOV_TR004,conquest 1453,english,tr
+MOV_IN002,rrr,abbreviation,in
+MOV_IN003,kgf 2,abbreviation,in
+MOV_IN003,kgf chapter 2,english,in
