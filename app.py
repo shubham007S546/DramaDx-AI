@@ -638,7 +638,8 @@ def render_profile(profile: dict, youtube_key: str, youtube_region: str) -> None
             profile.get("network", "") if not is_movie else "",
         ] if p]
         st.markdown(
-            f'<div class="drama-meta">{"<span class=\'sep\'>·</span>".join(meta_parts)}</div>',
+            sep = "<span class='sep'>•</span>"
+            html = f'<div class="drama-meta">{sep.join(meta_parts)}</div>',
             unsafe_allow_html=True,
         )
 
